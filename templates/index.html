@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Farras's IoT Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+        :root {
+            --bg-gradient-1: #0F172A;
+            --bg-gradient-2: #1E293B;
+            --card-bg: rgba(30, 41, 59, 0.8);
+            --card-border: rgba(148, 163, 184, 0.1);
+            --text-primary: #F1F5F9;
+            --text-secondary: #94A3B8;
+            --accent-blue: #3B82F6;
+            --accent-cyan: #06B6D4;
+            --accent-purple: #8B5CF6;
+            --accent-green: #10B981;
+            --accent-red: #EF4444;
+            --accent-orange: #F59E0B;
+            --glow-blue: rgba(59, 130, 246, 0.3);
+            --glow-green: rgba(16, 185, 129, 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--bg-gradient-1) 0%, var(--bg-gradient-2) 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 20px;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            right: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%);
+            animation: pulse 15s ease-in-out infinite;
+            pointer-events: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1) rotate(0deg); }
+            50% { transform: scale(1.1) rotate(180deg); }
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+            text-shadow: 0 0 30px var(--glow-blue);
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 1rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan));
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 48px rgba(59, 130, 246, 0.2);
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+
+        .card:hover::before {
+            opacity: 1;
+        }
+
+        .card-small { grid-column: span 1; }
+        .card-medium { grid-column: span 2; }
+        .card-large { grid-column: span 4; }
+
+        .card-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #475569;
+            margin-right: 12px;
+            transition: all 0.3s;
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+        }
+
+        .status-dot.connected {
+            background-color: var(--accent-green);
+            animation: pulse-dot 2s infinite;
+        }
+
+        .status-dot.disconnected {
+            background-color: var(--accent-red);
+        }
+
+        @keyframes pulse-dot {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        .data-live {
+            text-align: center;
+            padding: 20px 0;
+        }
+
+        .data-live .value {
+            font-size: 3.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: baseline;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .data-live .label {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 20px;
+            background: rgba(59, 130, 246, 0.05);
+            border-radius: 12px;
+            border: 1px solid rgba(59, 130, 246, 0.1);
+        }
+
+        .stat-item .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-item .stat-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 16px 24px;
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .btn:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        .btn-on {
+            background: linear-gradient(135deg, var(--accent-green), #059669);
+            color: white;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-on:hover {
+            box-shadow: 0 6px 25px rgba(16, 185, 129, 0.5);
+            transform: translateY(-2px);
+        }
+
+        .btn-off {
+            background: linear-gradient(135deg, var(--accent-red), #DC2626);
+            color: white;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-off:hover {
+            box-shadow: 0 6px 25px rgba(239, 68, 68, 0.5);
+            transform: translateY(-2px);
+        }
+
+        .relay-status {
+            text-align: center;
+            margin-top: 15px;
+            padding: 12px;
+            background: rgba(59, 130, 246, 0.05);
+            border-radius: 8px;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .table-wrapper {
+            max-height: 400px;
+            overflow-y: auto;
+            border-radius: 12px;
+            border: 1px solid var(--card-border);
+        }
+
+        .table-wrapper::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .table-wrapper::-webkit-scrollbar-track {
+            background: rgba(148, 163, 184, 0.05);
+            border-radius: 4px;
+        }
+
+        .table-wrapper::-webkit-scrollbar-thumb {
+            background: var(--accent-blue);
+            border-radius: 4px;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        .data-table th {
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--accent-blue);
+            font-weight: 600;
+            padding: 14px 16px;
+            text-align: left;
+            position: sticky;
+            top: 0;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid var(--accent-blue);
+        }
+
+        .data-table td {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--card-border);
+            color: var(--text-primary);
+        }
+
+        .data-table tbody tr {
+            transition: background 0.2s ease;
+        }
+
+        .data-table tbody tr:hover {
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        @media (max-width: 1200px) {
+            .container {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .card-small, .card-medium { grid-column: span 1; }
+            .card-large { grid-column: span 2; }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+            .card-small, .card-medium, .card-large { grid-column: span 1; }
+            .header h1 { font-size: 2rem; }
+            .data-live .value { font-size: 2.5rem; }
+            .stats-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>🌡️ Farras's IoT Dashboard</h1>
+        <p>Real-time monitoring & control system</p>
+    </div>
+
+    <div class="container">
+        
+        <div class="card card-small">
+            <h2 class="card-title">
+                <span id="mqtt-status-dot" class="status-dot"></span>
+                Temperature
+            </h2>
+            <div class="data-live">
+                <div class="value"><span id="live-suhu">--.-</span>°C</div>
+                <div class="label" id="mqtt-status-text">Connecting to MQTT...</div>
+            </div>
+        </div>
+
+        <div class="card card-small">
+            <h2 class="card-title">
+                Humidity
+            </h2>
+            <div class="data-live">
+                <div class="value"><span id="live-humid">--.-</span>%</div>
+                <div class="label">Real-time data</div>
+            </div>
+        </div>
+        
+        <div class="card card-small">
+            <h2 class="card-title">
+                Light Level
+            </h2>
+            <div class="data-live">
+                <div class="value"><span id="live-lux">--.-</span></div>
+                <div class="label">Lux</div>
+            </div>
+        </div>
+
+        <div class="card card-small">
+            <h2 class="card-title">Pump Control</h2>
+            <div class="controls">
+                <button class="btn btn-on" onclick="publishRelay('ON')">Turn On</button>
+                <button class="btn btn-off" onclick="publishRelay('OFF')">Turn Off</button>
+                <div class="relay-status" id="relay-status">Status: Unknown</div>
+            </div>
+        </div>
+        
+        <div class="card card-large">
+            <h2 class="card-title">Database Statistics</h2>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-label">Max Temperature</div>
+                    <div class="stat-value" id="stat-max">--</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Min Temperature</div>
+                    <div class="stat-value" id="stat-min">--</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Average Temperature</div>
+                    <div class="stat-value" id="stat-avg">--</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card card-large">
+            <h2 class="card-title">Detailed Data Log (Latest 10)</h2>
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Temperature</th>
+                            <th>Humidity</th>
+                            <th>Lux</th>
+                            <th>Date & Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stat-detail-list">
+                        <tr><td colspan="5">Loading data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        /* --- JavaScript (Tidak Diubah) --- */
+        
+        const MQTT_BROKER = "broker.hivemq.com";
+        const MQTT_PORT = 8884;
+        const MQTT_TOPIC_DATA = "farras/sensor";
+        const MQTT_TOPIC_KONTROL = "farras/relay";
+        const clientId = "web-client-" + Math.random().toString(16).substr(2, 8);
+        
+        const client = new Paho.MQTT.Client(MQTT_BROKER, MQTT_PORT, clientId);
+        client.onConnectionLost = onConnectionLost;
+        client.onMessageArrived = onMessageArrived;
+
+        function startConnect() {
+            client.connect({
+                onSuccess: onConnect,
+                onFailure: onConnectFailure,
+                useSSL: true
+            });
+        }
+        
+        function onConnect() {
+            console.log("Connected to HiveMQ!");
+            document.getElementById("mqtt-status-text").innerText = "Connected to Wokwi";
+            document.getElementById("mqtt-status-dot").classList.add("connected");
+            client.subscribe(MQTT_TOPIC_DATA);
+        }
+
+        function onConnectFailure(response) {
+            console.log("Connection failed: " + response.errorMessage);
+            document.getElementById("mqtt-status-text").innerText = "Failed to connect!";
+            document.getElementById("mqtt-status-dot").classList.add("disconnected");
+            setTimeout(startConnect, 5000);
+        }
+
+        function onConnectionLost(response) {
+            if (response.errorCode !== 0) {
+                console.log("Connection lost: " + response.errorMessage);
+                document.getElementById("mqtt-status-text").innerText = "Connection lost. Reconnecting...";
+                document.getElementById("mqtt-status-dot").classList.remove("connected");
+                document.getElementById("mqtt-status-dot").classList.add("disconnected");
+            }
+        }
+
+        function onMessageArrived(message) {
+            if (message.destinationName === MQTT_TOPIC_DATA) {
+                try {
+                    const data = JSON.parse(message.payloadString);
+                    if (data.suhu) {
+                        document.getElementById("live-suhu").innerText = data.suhu.toFixed(2);
+                    }
+                    if (data.humid) {
+                        document.getElementById("live-humid").innerText = data.humid.toFixed(2);
+                    }
+                    if (data.lux !== undefined) {
+                        document.getElementById("live-lux").innerText = data.lux;
+                    }
+                } catch (e) { console.error("Failed to parse JSON: " + e); }
+            }
+        }
+        
+        function publishRelay(perintah) {
+            if (!client.isConnected()) {
+                alert("MQTT not connected! Please wait for the green dot.");
+                return;
+            }
+            const message = new Paho.MQTT.Message(perintah);
+            message.destinationName = MQTT_TOPIC_KONTROL;
+            client.send(message);
+            console.log(`Command sent: ${perintah}`);
+            document.getElementById("relay-status").innerText = `Status: Command ${perintah} sent!`;
+        }
+
+        function getStatsData() {
+            fetch('/api/stats')
+                .then(response => response.json())
+                .then(data => {
+                    console.log("Statistics data received:", data);
+                    
+                    document.getElementById("stat-max").innerText = data.suhumax.toFixed(2) + " °C";
+                    document.getElementById("stat-min").innerText = data.suhumin.toFixed(2) + " °C";
+                    document.getElementById("stat-avg").innerText = data.suhurata.toFixed(2) + " °C";
+
+                    const detailList = document.getElementById("stat-detail-list");
+                    detailList.innerHTML = ""; 
+                    
+                    if (data.nilai_suhu_max_humid_max.length === 0) {
+                        detailList.innerHTML = '<tr><td colspan="5">No data found.</td></tr>';
+                    } else {
+                        data.nilai_suhu_max_humid_max.forEach(item => {
+                            let tr = document.createElement("tr");
+                            tr.innerHTML = `
+                                <td>${item.idx}</td>
+                                <td>${item.suhun.toFixed(2)}°C</td>
+                                <td>${item.humid.toFixed(2)}%</td>
+                                <td>${item.kecerahan}</td>
+                                <td>${item.timestamp}</td>
+                            `;
+                            detailList.appendChild(tr);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error("Error fetching statistics data:", error);
+                    document.getElementById("stat-max").innerText = "Error";
+                    document.getElementById("stat-min").innerText = "Error";
+                    document.getElementById("stat-avg").innerText = "Error";
+                    document.getElementById("stat-detail-list").innerHTML = '<tr><td colspan="5">Error loading data.</td></tr>';
+                });
+        }
+
+        window.onload = function() {
+            getStatsData(); 
+            startConnect();
+            setInterval(getStatsData, 30500);
+        };
+
+    </script>
+</body>
+</html>
